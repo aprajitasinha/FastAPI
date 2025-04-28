@@ -6,18 +6,7 @@ from psycopg2.extras import execute_values
 
 # Stocks List
 stocks_list = [
-    "ADANIENT", "ADANIGREEN", "ADANIPORTS", "ADANIPOWER", "AMBUJACEM",
-    "APOLLOHOSP", "ASIANPAINT", "AXISBANK", "INOXWIND", "BAJFINANCE",
-    "BAJAJFINSV", "BANDHANBNK", "BEL", "BPCL", "BHARTIARTL", "BIOCON",
-    "BRITANNIA", "CIPLA", "COALINDIA", "DABUR", "DIVISLAB", "DRREDDY",
-    "EICHERMOT", "GAIL", "GODREJCP", "GRASIM", "HCLTECH", "HDFCAMC",
-    "HDFCBANK", "HDFCLIFE", "HEROMOTOCO", "HINDALCO", "HAL", "HINDUNILVR",
-    "ICICIBANK", "ICICIGI", "ICICIPRULI", "IOC", "INDUSINDBK", "INFY",
-    "INDIGO", "ITC", "JSWSTEEL", "KOTAKBANK", "LT", "LICHSGFIN", "M&M",
-    "MARUTI", "NESTLEIND", "NTPC", "ONGC", "POWERGRID", "RELIANCE", "SBILIFE",
-    "SBIN", "SUNPHARMA", "TCS", "TATACONSUM", "TATAMOTORS", "TATAPOWER",
-    "TATASTEEL", "TECHM", "TITAN", "ULTRACEMCO", "UPL", "WIPRO", "ZOMATO"
-]
+    "ADANIENT", "ADANIGREEN"]
 
 # Interval Mapping
 interval_map = {
@@ -152,6 +141,8 @@ def insert_data(week_intervals_epoch):
                 
                 ### create table if not exists
                 create_table(conn, each_stocks, interval_key)
+                print(f"Table '{each_stocks}.candle_{interval_key}' created or already exists.")
+                
                 
                 # Fetch data
                 
@@ -162,7 +153,7 @@ def insert_data(week_intervals_epoch):
                 
                 if not data:
                     print(f"No data available for {each_stocks} from {week_intervals_epoch[0][0]} to {week_intervals_epoch[0][1]}.")
-                    continue
+                    break
                 
                 
             
