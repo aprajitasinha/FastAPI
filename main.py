@@ -19,35 +19,41 @@ def get_db():
     finally:
         db.close()
         
-        
-class Item(BaseModel):
-    name: str
-    price: float
-    is_offer: Union[bool, None] = None
 
 @app.get("/")
 def read_root():
-    async def read_root():
-        return {"message": "Hello, FastAPI!"}
+    pass
 
 @app.get("/items/{item_id}")
 def read_item(item_id: int, q: str = None):
-    async def read_item(item_id: int, q: str = None):
-        """
-        Read item by ID and optional query parameter.
-        :param item_id: Item ID.
-        :param q: Optional query parameter.
-        :return: Dictionary with item ID and query parameter.
-        """
-         # Return a dictionary with item ID and query parameter
-         # This is a placeholder implementation
-         # In a real application, you would fetch the item from a database or other data source
-         # return {"item_id": item_id, "q": q}
-    return {"item_id": item_id, "q": q}
+    pass
+    
 
 @app.put("/items/{item_id}")
 def update_item(item_id: int, item: Item):
     return {"item_name": item.name, "item_id": item_id}
+
+
+
+#define a pydantic model
+class Item(BaseModel):
+    name: str
+    description: str 
+    price: float
+    tax: float 
+    is_offer: bool 
+
+#create API indpoint
+@app.post("/items/")
+async def create_item(item: Item):
+    total_price = item.price + (item.tax if item.tax else 0)
+    return{
+        "name": item.name,
+        "description": item.description,
+        "price": item.price,
+        "tax": item.tax,
+        "total_price": total_price
+    }
 
 
 
