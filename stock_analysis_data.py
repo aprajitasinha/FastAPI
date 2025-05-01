@@ -1,12 +1,18 @@
-import psycopg2
-import requests
 from datetime import datetime, timedelta
-import pytz
-from psycopg2.extras import execute_values
+import asyncio 
+import asyncpg
+import logging
+import httpx
+
+logging.basicConfig(level=logging.INFO)
+
 
 # Stocks List
-stocks_list = [
-    "ADANIENT", "ADANIGREEN"]
+stocks_list = ["ADANIENT", "ADANIGREEN", "ADANIPORTS", "ADANIPOWER","AMBUJACEM", "APOLLOHOSP", "ASIANPAINT","AXISBANK", "INOXWIND","BAJFINANCE","BAJAJFINSV","BANDHANBNK","BEL",
+    "BPCL","BHARTIARTL","BIOCON","BRITANNIA", "CIPLA","COALINDIA","DABUR", "DIVISLAB","DRREDDY","EICHERMOT","GAIL","GODREJCP", "GRASIM", "HCLTECH","HDFCAMC","HDFCBANK",
+    "HDFCLIFE","HEROMOTOCO", "HINDALCO", "HAL","HINDUNILVR","ICICIBANK","ICICIGI", "ICICIPRULI","IOC", "INDUSINDBK","INFY", "INDIGO","ITC","JSWSTEEL","KOTAKBANK", "LT",
+    "LICHSGFIN", "M&M","MARUTI", "NESTLEIND", "NTPC", "ONGC", "POWERGRID","RELIANCE", "SBILIFE","SBIN","SUNPHARMA", "TCS", "TATACONSUM","TATAMOTORS", "TATAPOWER", "TATASTEEL",
+    "TECHM", "TITAN", "ULTRACEMCO","UPL", "WIPRO","ZOMATO"]
 
 # Interval Mapping
 interval_map = {
@@ -17,22 +23,29 @@ interval_map = {
 BASE_URL = "https://groww.in/v1/api/charting_service/v4/chart/exchange/NSE/segment/CASH/{stock}"
 
 # Database connection
-def connection():
-    conn = psycopg2.connect(
-        database="stockanalysis",
-        user='aryanpatel',
-        password="12345",
-        host="localhost",
-        port="5432"
-    )
-    return conn
+async def connection():
+    try:
+        conn = await asyncpg.connect(
+            database="stockanalysis",
+            user='aryanpatel',
+            password="12345",
+            host="localhost",
+            port="5432"
+        )
+        logging.info("Connected to the database successfully.")
+        return conn
+    except Exception as e:
+        logging.error(f"Error connecting to database: {e}")
+        # return None
+        raise e
+
 
 # Create table
-def create_table(conn, stock_name, interval_name):
+async def create_table(conn, stock_name, interval_name):
     
-    conn.cursor().execute(f'CREATE SCHEMA IF NOT EXISTS "{stock_name}"')  # Use quotes to handle special characters
+    await conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{stock_name}"')  # Use quotes to handle special characters
 
-    conn.cursor().execute(f"""
+    await conn.execute(f"""
         CREATE TABLE IF NOT EXISTS "{stock_name}".candle_{interval_name} (
             id SERIAL PRIMARY KEY,
             open FLOAT,
@@ -43,46 +56,62 @@ def create_table(conn, stock_name, interval_name):
             epochtime BIGINT UNIQUE NOT NULL
         )
     """)
-    conn.commit()
+    
     
 
 # Insert data
-def insert_data_to_table(stock_name, interval_name, data , conn):
+async def insert_data_to_table(stock_name, interval_name, data , conn):
     """
     insert multiple data into table
     """
+    if conn is None:
+        raise ValueError("Database connection is None in insert_data_to_table")
+
+    table_name = f'"{stock_name}"."candle_{interval_name}"'
+
     ## bulk insert
-    insert_query = f"""INSERT INTO "{stock_name}".candle_{interval_name} (epochtime , open, high, low, close, volume)
-                    VALUES %s
-                ON CONFLICT (epochtime) DO NOTHING
-            """
-    execute_values(conn.cursor(), insert_query, data)
     
-    conn.commit()
+    insert_query = f'''INSERT INTO {table_name}
+                            (epochtime, open, high, low, close, volume)
+                            VALUES($1, $2, $3, $4, $5, $6)
+                            N CONFLICT (epochtime) UPDATE
+                            SET open = EXCLUDED.open,
+                                high = EXCLUDED.high,
+                                low = EXCLUDED.low,
+                                close = EXCLUDED.close,
+                                volume = EXCLUDED.volume;'''
+        #logging.info(f"Insert query: {data}")
+    try:   
+        await conn.executemany(insert_query,data)
+        
+    except Exception as e:
+        logging.error(f"Error inserting data into table: {e}")    
     
 
 
 # Fetch data
-def fetch_groww_data(stock, interval_minutes, interval_epoch_time):
+async def fetch_groww_data(stock, interval_minutes, interval_epoch_time):
     
     data = []
-    for each_interval in interval_epoch_time:
-        url = BASE_URL.format(stock=stock)
-        params = {
-            "intervalInMinutes": interval_minutes,
-            "startTimeInMillis": int(each_interval[0]),
-            "endTimeInMillis": int(each_interval[1]),
-        }
-        response = requests.get(url, params=params)
-        if response.status_code == 200:
-            response_json = response.json()
-            candles = response_json.get("candles", [])
+    #interval_epoch_time=interval_epoch_time[:1]
+    async with httpx.AsyncClient() as client:
+        for start_time, end_time  in interval_epoch_time:
+            response= await client.get(BASE_URL.format(stock=stock), params={
+                "intervalInMinutes": interval_minutes,
+                "startTimeInMillis": start_time,
+                "endTimeInMillis": end_time
+            })
+        
+            if response.status_code == 200:
+                response_json=response.json()
+                logging.info(f"Response JSON: {response_json}")
+                data.extend(response_json["candles"])
+            else:
+                data.extend([])
+        return data
+    
+        
             
-        else:
-            print(f"Failed to fetch data for {stock} ({interval_minutes} min). Status: {response.status_code}")
-            return []
-        data.extend(candles)
-    return data
 
 # Generate intraday intervals
 def generate_weekly_intervals():
@@ -93,7 +122,7 @@ def generate_weekly_intervals():
     input is end_date  a datetime object
     
     """
-    start_date = datetime(2025 , 1, 1) # Example start date    
+    start_date = datetime(2025 , 2, 1) # Example start date    
     #create intervals every week after 1 week and end week is today
     
     today = datetime.now()
@@ -124,7 +153,7 @@ def epoch_time_converter(intervals):
         
     return epoch_intervals
     
-def insert_data(week_intervals_epoch):
+async def insert_data(week_intervals_epoch,stock_name,interval_name,interval_value):
     """
     this function take the argument as start_date and end_date
     
@@ -132,52 +161,38 @@ def insert_data(week_intervals_epoch):
     input is end_date  a datetime object
     
     """
+    conn = None 
     try:
-    
-        conn = connection()
-        
-        for each_stocks in stocks_list:
-            for interval_key , interval_value in interval_map.items():
-                
-                ### create table if not exists
-                create_table(conn, each_stocks, interval_key)
-                print(f"Table '{each_stocks}.candle_{interval_key}' created or already exists.")
-                
-                
-                # Fetch data
-                
-                
-                data = fetch_groww_data(each_stocks, interval_value, week_intervals_epoch)
-                
-                insert_data_to_table(each_stocks , interval_key , data , conn)
-                
-                if not data:
-                    print(f"No data available for {each_stocks} from {week_intervals_epoch[0][0]} to {week_intervals_epoch[0][1]}.")
-                    break
-                
-                
-            
-            # Create table if it doesn't exist
-        
-            
-        conn.commit()
-        conn.close()
+        conn= await connection()   
+        data=await fetch_groww_data(stock_name, interval_value, week_intervals_epoch)  
+        await create_table(conn, stock_name, interval_name)   
+        await insert_data_to_table(stock_name, interval_name, data, conn) 
     except Exception as e:
         print(f"Error inserting data: {e}")
     finally:
         if conn:
-            conn.close()
+            await conn.close()
+    
+async def main():
+    task=[]
+    for each_stock in stocks_list:
+        for interval_key, interval_value in interval_map.items():
+           week_intervals = generate_weekly_intervals()
+           week_intervals_epoch = epoch_time_converter(week_intervals)
+           task.append(insert_data(week_intervals_epoch, each_stock, interval_key,interval_value))
+    await asyncio.gather(*task)
     
     
 # Main flow
 if __name__ == "__main__":
-    
+     
 
-    week_intervals = generate_weekly_intervals()
+    # week_intervals = generate_weekly_intervals()
     
-    week_intervals_epoch = epoch_time_converter(week_intervals)
+    # week_intervals_epoch = epoch_time_converter(week_intervals)
     
-    insert_data(week_intervals_epoch)
+    # insert_data(week_intervals_epoch)
+    asyncio.run(main())
 
 
     
