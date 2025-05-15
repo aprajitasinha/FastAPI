@@ -1,14 +1,15 @@
 # main.py
 import datetime
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Request
 import psycopg2
-from pydantic import BaseModel
-from typing import Union
+from pydantic import BaseModel,Field,EmailStr
 
 import requests
-from app.db import SessionLocal, engine
+# from app.db import SessionLocal, engine
 from fastapi.responses import RedirectResponse
 from psycopg2.extras import execute_values
+import time
+# from fastapi import TestClient
 
 
 #define a pydantic model
@@ -49,13 +50,14 @@ stocks_list = [
 # DB ENGINE
 
 app = FastAPI()
+
 # Dependency to get DB session
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# def get_db():
+#     db = SessionLocal()
+#     try:
+#         yield db
+#     finally:
+#         db.close()
         
 
 @app.get("/")
@@ -158,9 +160,33 @@ async def getstock_list(stock: str,
                 cursor.close()
             if 'conn' in locals():
                 conn.close()
-
                 
+@app.get("/stocks")
+async def get_stocks():
+    return {"stocks": stocks_list}
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers['X-Process-Time'] = str(process_time)
+    return response
+
+
+class UserInput(BaseModel):
+    username: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=6)
+    email: EmailStr
+    
+    class Config:
+        extra = "forbid" 
+               
             
+@app.post("/register/")
+def register_user(user: UserInput):
+    # At this point, user is validated
+    return {"message": "User validated and ready for DB insert"}
 
             
             
